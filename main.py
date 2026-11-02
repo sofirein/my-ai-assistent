@@ -4,72 +4,25 @@ from gigachat import GigaChat
 from prompts import SYSTEM_PROMPT
 from gigachat.models import ChatCompletionRequest, ChatMessage, ChatModelOptions
 
-# 1. Чтение настроек: загружаем ключ доступа из скрытого файла (.env)
 load_dotenv()
 key = os.getenv("GIGACHAT_CREDENTIALS")
 scope = os.getenv("GIGACHAT_SCOPE")
 
-print("=== Помощник по бюджету ===")
+print("=== Чат-помощник по бюджету ===")
+print("Доступные команды: 'выход', 'очистить', 'история'")
+print("Для начала просто напишите ваш доход и цель.\n")
 
-# 2. Ввод пользователя (Задание 7): три отдельных вопроса
-income = input("1. Какой у вас доход? ").strip()
-constraint = input("2. Есть ли ограничения (ипотека, кредиты)? ").strip()
-goal = input("3. Какая ваша цель (на что копите)? ").strip()
+# Задание 18, 19: Метка нового запуска в журнале
+with open("chat_history.txt", "a", encoding="utf-8") as f:
+    f.write("\n=== Новый запуск ===\n")
 
-# 3. Выбор формата (Задание 11)
-format_choice = input("Формат (1 - краткий, 2 - пошаговый): ").strip()
+# Задание 10: Создаем messages ДО цикла (только system)
+messages = [
+    ChatMessage(role="system", content=SYSTEM_PROMPT)
+]
 
-# 4. Проверки на пустоту (Задание 9)
-if not income or not goal:
-    print("Ошибка: Доход и цель обязательны для заполнения. Запрос не отправлен.")
-    exit()
-
-if not constraint:
-    constraint = "не указаны"
-
-if format_choice == "1":
-    format_text = "Дай краткий ответ, только основные цифры и выводы."
-elif format_choice == "2":
-    format_text = "Дай подробный пошаговый ответ с объяснениями."
-else:
-    print("Ошибка: Неверный выбор формата. Введите 1 или 2. Запрос не отправлен.")
-    exit()
-
-# 5. Сборка пользовательского промпта (Задание 8)
-user_prompt = f"""
-Мои данные:
-- Доход: {income} рублей.
-- Ограничения: {constraint}.
-- Цель: {goal}.
-
-Формат ответа: {format_text}
-"""
-
-print("--- Сформированный запрос ---")
-print(user_prompt)
-print("-----------------------------")
-
-# 6. Сборка запроса с настройками (Задания 3, 13)
-request = ChatCompletionRequest(
-    messages=[
-        ChatMessage(
-            role="system",
-            content=SYSTEM_PROMPT,
-        ),
-        ChatMessage(
-            role="user",
-            content=user_prompt,  # Передаем собранный текст
-        )
-    ],
-    # Настройки генерации (Задание 13)
-    model_options=ChatModelOptions(
-        temperature=0.2,
-        max_tokens=400,
-        repetition_penalty=1.05
-    )
-)
-
-print("Отправляем запрос....")
+max_pairs = 3 # Задание 16: Лимит пар
+successful_exchanges = 0 # Доп. задание: счетчик обменов
 
 with GigaChat(
     credentials=key,
@@ -78,18 +31,75 @@ with GigaChat(
     ca_bundle_file="certs/russian_trusted_root_ca_pem.crt",
     timeout=60,
 ) as client:
-    # 7. Отправка запроса
-    response = client.chat.create(request)
-    # 8. Извлечение текста ответа
-    answer = response.messages[0].content[0].text
-    print("\n=== Ответ нейросети ===")
-    print(answer)
+    
+    # Задание 7: Бесконечный цикл ввода
+    while True:
+        user_input = input("\nВы: ").strip()
+        
+        # Задание 8: Проверка команды выхода
+        if user_input.lower() == "выход":
+            print("Завершение работы. До свидания!")
+            break
+            
+        # Задание 8: Проверка пустого ввода
+        if not user_input:
+            print("Ошибка: пустой ввод. Пожалуйста, напишите текст.")
+            continue
+            
+        # Задание 14: Команда очистки
+        if user_input.lower() == "очистить":
+            messages = [messages[0]] # Оставляем только system
+            print("История текущего диалога очищена. Продолжайте общение.")
+            with open("chat_history.txt", "a", encoding="utf-8") as f:
+                f.write("\n[История текущего диалога очищена]\n")
+            continue
+            
+        # Задание 15: Команда просмотра истории
+        if user_input.lower() == "история":
+            print(f"Текущая длина истории: {len(messages)}")
+            print("Роли сообщений:")
+            for m in messages:
+                print(f"- {m.role}")
+            continue
 
-# 9. Сохранение в файлы (Задание 19)
-with open("last_prompt.txt", "w", encoding="utf-8") as f:
-    f.write(user_prompt)
+        # Если это обычный текст, добавляем его в историю
+        messages.append(ChatMessage(role="user", content=user_input))
 
-with open("last_answer.txt", "w", encoding="utf-8") as f:
-    f.write(answer)
+        # Сборка запроса с историей
+        request = ChatCompletionRequest(
+            messages=messages, # Передаем ВСЮ историю
+            model_options=ChatModelOptions(
+                temperature=0.2,
+                max_tokens=400
+            )
+        )
 
-print("\n[Файлы last_prompt.txt и last_answer.txt обновлены]")
+        print("Помощник печатает...")
+        
+        try:
+            # Отправка запроса
+            response = client.chat.create(request)
+            answer = response.messages[0].content[0].text
+            
+            print(f"Помощник: {answer}")
+            
+            # Задание 18: Добавляем ответ в историю
+            messages.append(ChatMessage(role="assistant", content=answer))
+            successful_exchanges += 1
+            
+            # Запись в текстовый журнал
+            with open("chat_history.txt", "a", encoding="utf-8") as f:
+                f.write(f"Вы: {user_input}\n")
+                f.write(f"Помощник: {answer}\n\n")
+
+            # Задание 17: Ограничение размера истории (max_pairs = 3)
+            # 1 system + 2 * max_pairs (user + assistant)
+            if len(messages) > 1 + 2 * max_pairs:
+                # Оставляем system (messages[0]) и последние 2*max_pairs сообщений
+                messages = [messages[0]] + messages[-2 * max_pairs:]
+                print(f"[Система: память сокращена до последних {max_pairs} обменов]")
+
+        except Exception as e:
+            print(f"Ошибка при запросе к API: {e}")
+            # Если ошибка, удаляем последний вопрос пользователя, чтобы не ломать историю
+            messages.pop()
